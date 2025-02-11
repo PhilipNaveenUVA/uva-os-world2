@@ -65,13 +65,13 @@ el1_entry:
 	ldr	x1, =bss_end
 	sub	x1, x1, x0
 	bl 	memzero_aligned
-	
+
 setup_sp: 	
 	// quest: boot. Set sp to be at the end (or top) of the bootstack (cpu0)
-	/* TODO: your code here */
-	ldr x1, =boot_stacks	// sched.c		
-	/* TODO: your code here */
-	// NB: we aren't use sp yet -- until we call a C function for the 1st time
+	ldr x1, =boot_stacks	// Load address of boot_stacks
+	ldr x2, =4096	// Load the size of a single stack
+	add x1, x1, x2	// Calculate the top of the boot stack for cpu0
+	mov sp, x1	// Set the stack pointer
 
 	// install irq vectors
 	ldr x0, =vectors	// load VBAR_EL1 vector table addr

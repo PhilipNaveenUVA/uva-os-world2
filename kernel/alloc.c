@@ -1,8 +1,6 @@
 /* simple memory allocation. in fact lab2 not uses page allocator (only phys
     region reservation); so this can be further simplified.*/
 
-// #define K2_DEBUG_VERBOSE
-// #define K2_DEBUG_INFO
 #define K2_DEBUG_WARN
 
 #include "plat.h"
@@ -47,7 +45,7 @@ static unsigned long LOW_MEMORY = 0; 	// pa
 static unsigned long PAGING_PAGES = 0; 
 extern char kernel_end; // linker.ld
 
-/* allocate a page (zero filled). return pa of the page. 0 if failed */
+
 unsigned long get_free_page() {
 	acquire(&alloc_lock);
 	for (int i = 0; i < PAGING_PAGES-MALLOC_PAGES; i++){
@@ -63,7 +61,7 @@ unsigned long get_free_page() {
 	return 0;
 }
 
-/* free a page. @p is pa of the page. */
+
 void free_page(unsigned long p){
 	acquire(&alloc_lock);
 	mem_map[(p - LOW_MEMORY)>>PAGE_SHIFT] = 0; paging_pages_used--;
@@ -97,20 +95,20 @@ static int _reserve_phys_region(unsigned long pa_start,
 	return 0; 
 }
 
-/* same as above. but caller MUST NOT hold alloc_lock */
+
 int reserve_phys_region(unsigned long pa_start, unsigned long size) {
 	int ret; 
 	acquire(&alloc_lock); 
-	ret = _reserve_phys_region(pa_start, size, 1/*reserve*/);
+	ret = _reserve_phys_region(pa_start, size, 1);
 	release(&alloc_lock); 
 	return ret; 
 }
 
-/* same as above. but caller MUST NOT hold alloc_lock */
+
 int free_phys_region(unsigned long pa_start, unsigned long size) {
 	int ret; 
 	acquire(&alloc_lock); 
-	ret = _reserve_phys_region(pa_start, size, 0/*free*/);
+	ret = _reserve_phys_region(pa_start, size, 0);
 	release(&alloc_lock); 
 	return ret; 
 }
@@ -123,7 +121,7 @@ unsigned int paging_init() {
 	
     BUG_ON(2 * MALLOC_PAGES >= PAGING_PAGES); // too many malloc pages 
 
-    /* reserve a virtually contig region for malloc()  */
+    
     if (MALLOC_PAGES) {
         acquire(&alloc_lock); 
 		int ret = _reserve_phys_region(HIGH_MEMORY0-MALLOC_PAGES*PAGE_SIZE, 

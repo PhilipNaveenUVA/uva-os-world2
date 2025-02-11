@@ -4,7 +4,6 @@
 #include "utils.h"
 #include "entry.h"
 
-// must match entry.h 
 const char *entry_error_messages[] = {
     [SYNC_INVALID_EL1t] "SYNC_INVALID_EL1t",
     [IRQ_INVALID_EL1t] "IRQ_INVALID_EL1t",		
@@ -24,14 +23,9 @@ const char *entry_error_messages[] = {
     [ERROR_INVALID_EL0_32] "ERROR_INVALID_EL0_32",
 };
 
-// Enables per-core interrupt control
 void enable_interrupt_controller(int coreid)
 {
 #if defined(PLAT_RPI3) || defined(PLAT_RPI3QEMU)
-    // On RPi3, Arm Generic timer IRQs are wired to a per-core interrupt controller/register. 
-    // For core 0, this is `TIMER_INT_CTRL_0` at 0x40000040; bit 1 is for physical timer at EL1 (CNTP). This register is documented 
-    // in the [manual](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2836/QA7_rev3.4.pdf) of BCM2836 
-    // (search for "Core timers interrupts"). Note the manual is NOT for the BCM2837 SoC used by Rpi3    
     put32(TIMER_INT_CTRL_0 + 4*coreid, TIMER_INT_CTRL_0_VALUE);
 
     if (coreid==0)
@@ -42,16 +36,12 @@ void enable_interrupt_controller(int coreid)
                     SYSTEM_TIMER_IRQ_1); 
 
 #elif defined(PLAT_VIRT)
-    arm_gic_dist_init(0 /* core */, VA_START + QEMU_GIC_DIST_BASE, 0 /*irq start*/);
-    arm_gic_cpu_init(0 /* core*/, VA_START + QEMU_GIC_CPU_BASE);
-    arm_gic_umask(0 /* core */, IRQ_ARM_GENERIC_TIMER);
-    arm_gic_umask(0 /* core */, IRQ_UART_PL011);
-    arm_gic_umask(0 /* core */, IRQ_VIRTIO0);
+    arm_gic_dist_init(0 , VA_START + QEMU_GIC_DIST_BASE, 0 );
+    arm_gic_cpu_init(0 , VA_START + QEMU_GIC_CPU_BASE);
+    arm_gic_umask(0 , IRQ_ARM_GENERIC_TIMER);
+    arm_gic_umask(0 , IRQ_UART_PL011);
+    arm_gic_umask(0 , IRQ_VIRTIO0);
 
-    // finding irq numbers, which I couldn't find figure out (qemu info qtree? trace events)?
-    // for (int i=0; i<64; i++)
-    //     arm_gic_umask(0, i);
-    // gic_dump(); // debugging 
 #else   
     #error "unimplemented"    
 #endif
@@ -112,7 +102,6 @@ unknown:
 }
 #endif
 
-// esr: syndrome, elr: ~faulty pc, far: faulty access addr
 void show_invalid_entry_message(int type, unsigned long esr, 
     unsigned long elr, unsigned long far)
 {    

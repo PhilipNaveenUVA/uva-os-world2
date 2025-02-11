@@ -4,7 +4,7 @@
 
 #include "utils.h"
 
-/* c: the fill value (byte); n: size, in bytes */
+
 void *memset(void *dst, int c, uint n) {
     char *cdst = (char *)dst;
     int i;
@@ -32,9 +32,6 @@ int memcmp(const void *v1, const void *v2, uint n) {
     return 0;
 }
 
-// xzl: handles overlap well
-// TBD replace it with an aarch64 opt version? it's at the core of surfaceflinger
-// etc.
 void *
 memmove(void *dst, const void *src, uint n) {
     const char *s;
@@ -57,9 +54,6 @@ memmove(void *dst, const void *src, uint n) {
     return dst;
 }
 
-// memcpy exists to placate GCC.  Use memmove.
-// NB: gcc will gen code to invoke memcpy for struct assignment. so the
-// func below must be right (e.g. cannot assume any alignment)
 void *
 memcpy(void *dst, const void *src, uint n) {
     return memmove(dst, src, n);
@@ -85,7 +79,6 @@ strncpy(char *s, const char *t, int n) {
     return os;
 }
 
-// Like strncpy but guaranteed to NUL-terminate.
 char *
 safestrcpy(char *s, const char *t, int n) {
     char *os;
@@ -115,4 +108,3 @@ int atoi(const char *s) {
     return n;
 }
 
-/* the file is derived from xv6 */

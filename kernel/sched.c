@@ -1,5 +1,3 @@
-// #define K2_DEBUG_VERBOSE
-// #define K2_DEBUG_INFO
 #define K2_DEBUG_WARN
 
 #include "plat.h"
@@ -15,7 +13,6 @@ cf. ret_from_syscall (entry.S). if you modify the d/s below, keep that in mind. 
 static __attribute__ ((aligned (PAGE_SIZE)))
 char kernel_stacks[NR_TASKS][THREAD_SIZE]; 
 
-// used during boot, then used as the kern stacks for idle tasks
 __attribute__ ((aligned (PAGE_SIZE))) 
 char boot_stacks[NCPU][THREAD_SIZE];
 
@@ -47,7 +44,7 @@ struct task_struct *myproc(void) {
 
 extern void init(int arg); // kernel.c
 
-/* must be called BEFORE any schedule() or timertick() occurs */
+
 void sched_init(void) {
     for (int i = 0; i < NR_TASKS; i++) {
         task[i] = (struct task_struct *)(&kernel_stacks[i][0]); 
@@ -68,7 +65,7 @@ void sched_init(void) {
         (inc sp/pc) to idle_tasks[i] */
     }
     
-    /* init task, will be picked up once cpu0 calls schedule() for the 1st time */
+    
     init_task = task[0]; 
     init_task->state = TASK_RUNNABLE;
     init_task->cpu_context.x19 = (unsigned long)init; 
@@ -78,7 +75,6 @@ void sched_init(void) {
     init_task->credits = 0;
     init_task->priority = 2;
     init_task->flags = PF_KTHREAD;
-    // init_task->mm = 0;  // nothing (kernel task) 
     init_task->chan = 0;
     init_task->pid = 0;
     safestrcpy(init_task->name, "init", 5);
@@ -98,7 +94,6 @@ static int task_on_cpu(struct task_struct *p) {
 /* the scheduler, called by tasks or irq. invoked for both cooperative 
     (via yield()) and preemptive scheduling (via timer interrupt).
     caller must NOT hold sched_lock */
-// quest: "two cooperative printers"
 void schedule() {
     V("cpu%d schedule", cpuid());
 
@@ -122,14 +117,13 @@ void schedule() {
            find a task w/ maximum credits. */
 		for (int i = 0; i < NR_TASKS; i++){
 			p = task[i]; BUG_ON(!p);
-            // if task is active on other cpu, dont touch
             oncpu = task_on_cpu(p); 
             if (oncpu != -1 && oncpu != cpu) 
                 continue;
 			if ((p == cur && p->state == TASK_RUNNING)
                 || p->state == TASK_RUNNABLE) {
                 has_runnable = 1; 
-                /* NB: p->credits protected by sched_lock */
+                
                 V("cpu%d pid %d credits %ld", cpu, i, p->credits);
 				if (p->credits > max_cr) { max_cr = p->credits; next = i; }
 			}
@@ -137,32 +131,34 @@ void schedule() {
 		if (max_cr > 0) {
             I("cpu%d picked pid %d state %s credits %d", cpu, next, 
                 states[task[next]->state], p->credits);
-switch_to(0); /* TODO: replace this */
+            p = task[next];
+            switch_to(p); 
 			break;
         }
 
-		/* No task can run ... */
+		
         if (has_runnable) { 
-            /* reason1: insufficient credits. recharge for all & retry scheduling */
+            
             for (int i = 0; i < NR_TASKS; i++) {
                 p = task[i]; BUG_ON(!p);
                 if (p->state != TASK_UNUSED) {
-                    /* NB: p->credits/priority protected by sched_lock */
+                    
                     p->credits = (p->credits >> 1) + p->priority;  // per priority
                 }                
             }
-        } else { /* reason2: no normal tasks RUNNABLE (inc. cur task) */
+        } else { 
             V("cpu%d nothing to run. switch to idle", cpu); 
             #ifdef K2_DEBUG_VERBOSE
             procdump(); 
             #endif
-            /* if cpu already on idle task, this will do nothing */
-switch_to(0); /* TODO: replace this */
+            
+            p = task[0];
+            switch_to(p); 
             break;
         }
 	}
     release(&sched_lock);
-    /* leave the scheduler: the primary path  */
+    
 }
 
 /* 
@@ -180,7 +176,6 @@ void leave_scheduler(void) {
 
 /* voluntarily reschedule; gives up all remaining schedule credits
 only called from tasks */
-// quest: "fast/slow donuts"
 void yield(void) {    
     struct task_struct *p = myproc(); 
     acquire(&sched_lock); p->credits = 0; release(&sched_lock);
@@ -189,7 +184,6 @@ void yield(void) {
 
 /* caller must hold sched_lock, and not holding next->lock
 called when preemption is disabled, so the cur task wont lose cpu */
-// quest: "two cooperative printers"
 void switch_to(struct task_struct * next) {
 	struct task_struct * prev; 
     struct task_struct *cur; 
@@ -222,8 +216,8 @@ void switch_to(struct task_struct * next) {
         cpu_switch_to() does not need task::lock, cf "locking protocol" on the top
     */
 
-    /* below: cpu_switch_to() in switch.S. it will branch to next->cpu_context.pc */
-cpu_switch_to(0, 0); /* TODO: replace this */
+    
+    cpu_switch_to(prev, next); 
 }
 
 #define CPU_UTIL_INTERVAL 10  // cal cpu measurement every X ticks
@@ -240,7 +234,6 @@ void timer_tick() {
         if (cur->pid>=0 && cur->state == TASK_RUNNING) // not "idle" (pid -1), and running
             cp->busy++; 
 
-        // calculate cpu util %     quest: hide this until later lab
         if ((cp->total++ % CPU_UTIL_INTERVAL) == CPU_UTIL_INTERVAL - 1) {
             cp->last_util = cp->busy * 100 / CPU_UTIL_INTERVAL; 
             cp->busy = 0; 
@@ -254,7 +247,6 @@ void timer_tick() {
 
         acquire(&sched_lock); 
         if (cur->pid>=0 && --cur->credits > 0) { 
-            // let "cur" task to continue execution 
             V("leave timer_tick. no resche");
             release(&sched_lock); return;
         }
@@ -279,7 +271,7 @@ void timer_tick() {
        DAIF.I flag from spsr, which sets irq on. */
 }
 
-/* -------------  sleep() & wakeup() etc  -------------------- */
+
 
 /* Design patterns for sleep() & wakeup() 
 
@@ -302,28 +294,35 @@ off the cpu */
 /* Wake up all processes sleeping on chan. Only change p->state; wont call
 schedule() return # of tasks woken up.
 Caller must hold sched_lock  */
-// quest: "wordsmith"
 static int wakeup_nolock(void *chan) {
     struct task_struct *p;
-    int cnt = 0; 
-    // V("chan=%lx", (unsigned long)chan);
+
+    // Create a pointer for continuation
+    int counter = 0; 
+
 	for (int i = 0; i < NR_TASKS; i ++) {
-		p = task[i]; 
-        // NB: it's possible that p == cur and should be woken up
+		
+        p = task[i]; 
+        
         if (p->state == TASK_UNUSED) continue; 
+        
         if (p->state == TASK_SLEEPING && p->chan == chan) {            
-            /* TODO: your code here */
+            
+            p->state = TASK_RUNNABLE;
+            counter = counter + 1;
+            
+            
+            
             I("wakeup cpu%d chan=%lx pid %d", cpuid(),
                 (unsigned long)p->chan, p->pid);
         }
     }
-    return cnt; 
+    return counter; 
 }
 
 /* Must be called WITHOUT sched_lock 
 Called from irq (many drivers) or task
 return # of tasks woken up */
-// quest: "wordsmith"
 int wakeup(void *chan) {
     int cnt; 
     acquire(&sched_lock);     
@@ -335,7 +334,6 @@ int wakeup(void *chan) {
 /* Atomically release "lk" and sleep on chan.
 Reacquires lk when awakened.
 Called by tasks with @lk held */
-// quest: "wordsmith"
 void sleep(void *chan, struct spinlock *lk) {
     struct task_struct *p = myproc();
 
@@ -365,8 +363,10 @@ void sleep(void *chan, struct spinlock *lk) {
 
     I("sleep chan=%lx pid %d", (unsigned long)chan, p->pid);
 
-    /* Go to sleep. */
-    /* TODO: your code here */
+    
+    
+    p -> chan = chan;
+    p -> state = TASK_SLEEPING;
 
     /* although the task has not used up the current tick, bill it regardless.
     thus this task will be disadvantaged in future scheduling  */
@@ -376,14 +376,14 @@ void sleep(void *chan, struct spinlock *lk) {
     know exists for sure. the idle task will return from the schedule() and 
     rls sched_lock. the next timertick will call schedule() and switch 
     to a normal task (if any)  */
-struct task_struct *idle = 0; /* TODO: replace this */
+    struct task_struct *idle = idle_tasks[cpuid()];
     mycpu()->proc = idle; 
     cpu_switch_to(p, idle);  
     
     /* cpu_switch_to() back here when the cur task is woken up. 
     it now has sched_lock.  */
 
-    /* Tidy up. */
+    
     p->chan = 0;
 
     if (lk != &sched_lock) {
@@ -394,7 +394,7 @@ struct task_struct *idle = 0; /* TODO: replace this */
         calls wakeup() while holding sched_lock, which further tries to caquire
         sched_lock. cf unittests.c do_write()
         */
-    } /* else keep holding sched_lock */
+    } 
 }
 
 /* Pass p's abandoned children to init. (ie direct reparent to initprocess)
@@ -420,7 +420,7 @@ static void freeproc(struct task_struct *p);
     Return -1 if this process has no children. 
     addr=0 a special case, dont care about status
     --- "addr" ignored for lab2 */
-int wait(uint64 addr /*dst user va to copy status to */) {
+int wait(uint64 addr ) {
     struct task_struct **pp;
     int havekids, pid;
     struct task_struct *p = myproc();
@@ -433,7 +433,6 @@ int wait(uint64 addr /*dst user va to copy status to */) {
     acquire(&sched_lock); 
 
     for (;;) {
-        // Scan through table looking for exited children.  pp:child
         havekids = 0;
         for (pp = task; pp < &task[NR_TASKS]; pp++) {
             struct task_struct *p0 = *pp; BUG_ON(!p0); 
@@ -441,18 +440,15 @@ int wait(uint64 addr /*dst user va to copy status to */) {
             if (p0->parent == p) {
                 havekids = 1;
                 if (p0->state == TASK_ZOMBIE) {
-                    // Found one.
                     pid = p0->pid;
                     I("found zombie pid=%d", pid); 
                     freeproc(p0);       // will mark the task slot as unused                    
                     release(&sched_lock); 
-                    // the task slot now may be reused
                     return pid;
                 }
             }
         }
         
-        // No point waiting if we don't have any children.
         if (!havekids) {
             release(&sched_lock);
             return -1;
@@ -468,7 +464,6 @@ int wait(uint64 addr /*dst user va to copy status to */) {
 /* Becomes a zombie task and switch the cpu away from it 
 only when parent calls wait() this zombie task successfully, the zombie's 
 kernel stack (and task_struct on it) will be recycled. */
-// quest: "kill a donut"
 void exit_process(int status) {
     struct task_struct *p = myproc();
 
@@ -481,11 +476,11 @@ void exit_process(int status) {
     the cpu moves away from the zombie's stack (see below) */
     acquire(&sched_lock); 
 
-    /* Give any children to init. */
+    
     if (reparent(p)) 
         wakeup_nolock(init_task);
 
-    /* Parent might be sleeping in wait(). */
+    
     wakeup_nolock(p->parent); 
     p->xstate = status;
     p->state = TASK_ZOMBIE;
@@ -497,7 +492,12 @@ void exit_process(int status) {
     /* switch the cpu away from zombie's kern stack to the idle task, which we
     know exists for sure. the next timertick will call schedule() and switch 
     to a normal task (if any) */
-    /* TODO: your code here */
+    
+    int cpu = cpuid ();
+
+
+    struct task_struct *idle = idle_tasks[ cpu  /*added in this part*/];
+    switch_to(idle);
 
     /* the "switch-to" task will resume from the schedule()'s exit path, which
     will release sched_lock after sched_lock is released, the parent can proceed
@@ -514,8 +514,6 @@ static void freeproc(struct task_struct *p) {
     BUG_ON(!p); V("%s entered. pid %d", __func__, p->pid);
 
     p->state = TASK_UNUSED; // mark the slot as unused
-    // o need to zero task_struct, which is among the task's kernel page
-    // FIX: since we cannot recycle task slot now, so we dont dec nr_tasks ...
     p->flags = 0; 
     p->killed = 0; 
     p->credits = 0; 
@@ -551,7 +549,7 @@ void procdump(void) {
         paging_pages_used*100/(paging_pages_total));
 }
 
-/* -------------  fork related  -------------------- */
+
 
 static int lastpid=0; // a hint for the next free tcb slot. slowdown pid reuse for dbg ease
 
@@ -564,14 +562,12 @@ static int lastpid=0; // a hint for the next free tcb slot. slowdown pid reuse f
     arg: arg to kernel thread; or stack (userva) for user thread
     name: to be copied to task->name[]. if null, copy parent's name
 */
-// quest "two cooperative printers"
 int copy_process(unsigned long clone_flags, unsigned long fn, unsigned long arg,
     const char *name) {
 	struct task_struct *p = 0, *cur=myproc(); 
     int i, pid; 
 
 	acquire(&sched_lock);	
-	// find an empty tcb slot
 	for (i = 0; i < NR_TASKS; i++) {
         pid = (lastpid+1+i) % NR_TASKS; 
 		p = task[pid]; BUG_ON(!p); 
@@ -587,33 +583,30 @@ int copy_process(unsigned long clone_flags, unsigned long fn, unsigned long arg,
 	acquire(&p->lock);	
     acquire(&cur->lock);	
 
-    // load fn/arg to cpu context. cf ret_from_fork
-    /* TODO: your code here */
+    
+    p->cpu_context.x19 = fn;  /*Setting the new PC*/  p->cpu_context.x20 = arg;  // AAAAAAAAAAAAAAAAAAAAA >:(
 
-    // also inherit task name
     if (name)
+
         safestrcpy(p->name, name, sizeof(p->name));
     else 
 	    safestrcpy(p->name, cur->name, sizeof(cur->name));
 
-	p->flags = clone_flags;
-	p->credits = p->priority = cur->priority;
-	p->pid = pid; 
+	p->flags = clone_flags; p->credits = p->priority = cur->priority; p->pid = pid; 
 
-	// @page is 0-filled, many fields (e.g. mm.pgd) are implicitly init'd
 
-    // prep new task's scheduler context: assign values to the pc/sp of new
-    // task's cpu_context
-	/* TODO: your code here */
 	
+    p->cpu_context.pc = (unsigned long) ret_from_fork; 
+
+
+    unsigned long sp_address = (unsigned long)p + THREAD_SIZE;
+    p->cpu_context.sp = sp_address;
+
     release(&cur->lock);
-	release(&p->lock);
+	release(&p->lock); // Avoids UAF's
 
  	p->parent = cur;
-	// the last thing: change the task's state so that the scheduler can pick up
-    // the task to run in the future
-	/* TODO: your code here */
-	
+    p->state = TASK_RUNNABLE;
 	release(&sched_lock);
 
 	return pid;

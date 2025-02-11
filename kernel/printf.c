@@ -21,9 +21,6 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #include "printf.h"
 #include "utils.h"
 
-// spinlock prevents msgs for mixing. it can be commented out, e.g. for 
-// debugging spinlock or deadlock 
-// #define USE_PRINTLOCK 1
 #ifdef USE_PRINTLOCK
 #include "spinlock.h"
 static struct spinlock printlock = {.locked=0, .cpu=0, .name="printlock"};
@@ -33,13 +30,13 @@ static struct spinlock printlock = {.locked=0, .cpu=0, .name="printlock"};
  * Configuration
  */
 
-/* Enable long int support */
+
 #define PRINTF_LONG_SUPPORT
 
-/* Enable long long int support (implies long int support) */
+
 #define PRINTF_LONG_LONG_SUPPORT
 
-/* Enable %z (size_t) support */
+
 #define PRINTF_SIZE_T_SUPPORT
 
 /*
@@ -53,7 +50,7 @@ static struct spinlock printlock = {.locked=0, .cpu=0, .name="printlock"};
 # define PRINTF_LONG_SUPPORT
 #endif
 
-/* __SIZEOF_<type>__ defined at least by gcc */
+
 #ifdef __SIZEOF_POINTER__
 # define SIZEOF_POINTER __SIZEOF_POINTER__
 #endif
@@ -77,14 +74,14 @@ static struct spinlock printlock = {.locked=0, .cpu=0, .name="printlock"};
  * Implementation
  */
 struct param {
-    char lz:1;          /**<  Leading zeros */
-    char alt:1;         /**<  alternate form */
-    char uc:1;          /**<  Upper case (for base16 only) */
-    char align_left:1;  /**<  0 == align right (default), 1 == align left */
-    unsigned int width; /**<  field width */
-    char sign;          /**<  The sign to display (if any) */
-    unsigned int base;  /**<  number base (e.g.: 8, 10, 16) */
-    char *bf;           /**<  Buffer to output */
+    char lz:1;          
+    char alt:1;         
+    char uc:1;          
+    char align_left:1;  
+    unsigned int width; 
+    char sign;          
+    unsigned int base;  
+    char *bf;           
 };
 
 
@@ -211,7 +208,7 @@ static void putchw(void *putp, putcf putf, struct param *p)
     int n = p->width;
     char *bf = p->bf;
 
-    /* Number of filling characters */
+    
     while (*bf++ && n > 0)
         n--;
     if (p->sign)
@@ -221,17 +218,17 @@ static void putchw(void *putp, putcf putf, struct param *p)
     else if (p->alt && p->base == 8)
         n--;
 
-    /* Fill with space to align to the right, before alternate or sign */
+    
     if (!p->lz && !p->align_left) {
         while (n-- > 0)
             putf(putp, ' ');
     }
 
-    /* print sign */
+    
     if (p->sign)
         putf(putp, p->sign);
 
-    /* Alternate */
+    
     if (p->alt && p->base == 16) {
         putf(putp, '0');
         putf(putp, (p->uc ? 'X' : 'x'));
@@ -239,18 +236,18 @@ static void putchw(void *putp, putcf putf, struct param *p)
         putf(putp, '0');
     }
 
-    /* Fill with zeros, after alternate or sign */
+    
     if (p->lz) {
         while (n-- > 0)
             putf(putp, '0');
     }
 
-    /* Put actual buffer */
+    
     bf = p->bf;
     while ((ch = *bf++))
         putf(putp, ch);
 
-    /* Fill with space to align to the left, after string */
+    
     if (!p->lz && p->align_left) {
         while (n-- > 0)
             putf(putp, ' ');
@@ -261,9 +258,9 @@ void tfp_format(void *putp, putcf putf, const char *fmt, va_list va)
 {
     struct param p;
 #ifdef PRINTF_LONG_SUPPORT
-    char bf[23];  /* long = 64b on some architectures */
+    char bf[23];  
 #else
-    char bf[12];  /* int = 32b on some architectures */
+    char bf[12];  
 #endif
     char ch;
     p.bf = bf;
@@ -273,16 +270,16 @@ void tfp_format(void *putp, putcf putf, const char *fmt, va_list va)
             putf(putp, ch);
         } else {
 #ifdef PRINTF_LONG_SUPPORT
-            char lng = 0;  /* 1 for long, 2 for long long */
+            char lng = 0;  
 #endif
-            /* Init parameter struct */
+            
             p.lz = 0;
             p.alt = 0;
             p.width = 0;
             p.align_left = 0;
             p.sign = 0;
 
-            /* Flags */
+            
             while ((ch = *(fmt++))) {
                 switch (ch) {
                 case '-':
@@ -300,7 +297,7 @@ void tfp_format(void *putp, putcf putf, const char *fmt, va_list va)
                 break;
             }
 
-            /* Width */
+            
             if (ch >= '0' && ch <= '9') {
                 ch = a2u(ch, &fmt, 10, &(p.width));
             }
@@ -309,8 +306,8 @@ void tfp_format(void *putp, putcf putf, const char *fmt, va_list va)
              * we ignore the 'y' digit => this ignores 0-fill
              * size and makes it == width (ie. 'x') */
             if (ch == '.') {
-              p.lz = 1;  /* zero-padding */
-              /* ignore actual 0-fill size: */
+              p.lz = 1;  
+              
               do {
                 ch = *(fmt++);
               } while ((ch >= '0') && (ch <= '9'));
@@ -533,19 +530,15 @@ int tfp_sprintf(char *str, const char *format, ...)
 }
 #endif
 
-// xv6
 void panic(char *s)
 {
   printf("panic: ");
   printf("%s\n", s);
-//   panicked = 1; // freeze uart output from other CPUs
     asm volatile("msr	daifset, #0b0010 "); // disable irq
   for(;;)
     ;
 }
 
-// circle debug.cpp
-// will dump at least 16 bytes....
 void debug_hexdump (const void *pStart, unsigned nBytes)
 {
 	unsigned char *pOffset = (unsigned char *) pStart;
@@ -575,7 +568,6 @@ void debug_hexdump (const void *pStart, unsigned nBytes)
 	}
 }
 
-// circle assert.cpp        
 void assertion_failed (const char *pExpr, const char *pFile, unsigned nLine) {
     printf("assertion failed: %s at %s:%u\n", pExpr, pFile, nLine); 
     panic("kernel hangs"); 

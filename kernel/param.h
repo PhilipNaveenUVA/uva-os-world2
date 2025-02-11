@@ -17,7 +17,7 @@
 
 #define NN 640 // entire canvas dimension. NN by NN. cf donut.c
 // #define N_DONUTS 2      // max # of donuts
-#define N_DONUTS 4      // max # of donuts. slow w/o cache. project idea: compare the speed vs w/cache
+#define N_DONUTS 3      // max # of donuts. slow w/o cache. project idea: compare the speed vs w/cache
 
 #define DEV_RAMDISK     1       // ramdisk
 #define DEV_VIRTDISK    2       // qemu's virtio device

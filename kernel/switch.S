@@ -24,13 +24,25 @@ cpu_switch_to:
 	str	x30, [x8]			// save LR (x30) to cpu_context.pc, pointing to where this function is called from
 	
 	// calculate the address of the next task's `cpu_context`
-add x8, x0, x0 /* TODO: replace this */
+
+
+
+    mov	x10, #THREAD_CPU_CONTEXT
+	add x8, x1, x10 /* TODO: replace this */
 	
 	// below: restore the CPU context of "switch_to" task to CPU regs
-	/* TODO: your code here */
+	
+    ldp x19, x20, [x8], #16
+    ldp x21, x22, [x8], #16
+    ldp x23, x24, [x8], #16
+    ldp x25, x26, [x8], #16
+    ldp x27, x28, [x8], #16
+    ldp x29, x9,  [x8], #16
+
+
 	ldr	x30, [x8]				// x30 == LR
 	// restore the value of sp, which is already loaded from the cpu context
-mov sp, x0 /* TODO: replace this */
+mov sp, x9 
 
 	// The `ret` instruction will jump to the location pointed to by the link 
 	// register (LR or `x30`). If we are switching to a task for the first time, 
@@ -38,4 +50,3 @@ mov sp, x0 /* TODO: replace this */
 	// cases this will be the address previously saved in the `cpu_context.pc` 
 	// by the `cpu_switch_to` function.
 	ret							
-

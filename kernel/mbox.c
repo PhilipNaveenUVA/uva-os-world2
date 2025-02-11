@@ -1,4 +1,3 @@
-// #define K2_DEBUG_WARN
 #define K2_DEBUG_INFO
 
 /* 
@@ -15,7 +14,7 @@
 
 struct spinlock mboxlock = {.locked=0, .cpu=0, .name="mbox_lock"};
 
-/* mailbox message buffer */
+
 volatile unsigned int  __attribute__((aligned(16))) mbox[36];
 
 #define MMIO_BASE       0x3F000000UL
@@ -40,25 +39,24 @@ volatile unsigned int  __attribute__((aligned(16))) mbox[36];
  */
 int mbox_call(unsigned char ch)
 {
-    // the buf addr (pa) w/ ch (chan id) in LSB 
     unsigned int r = (((unsigned int)((unsigned long)&mbox)&~0xF) | (ch&0xF));
     r = BUS_ADDRESS(r); 
-    /* wait until we can write to the mailbox */
+    
     do{asm volatile("nop");}while(*MBOX_STATUS & MBOX_FULL);
     __asm__ volatile ("dmb sy" ::: "memory");    // mem barrier, ensuring msg in mem
     __asm_flush_dcache_range((void *)mbox, (char *)mbox + sizeof(mbox)); 
 
-    /* write the address of our message to the mailbox with channel identifier */
+    
     *MBOX_WRITE = r; 
-    /* now wait for the response */
+    
     while(1) {
-        /* is there a response? */
+        
         do{asm volatile("nop");}while(*MBOX_STATUS & MBOX_EMPTY);
-        /* is it a response to our message? */
+        
         if(r == *MBOX_READ) {
             V("r is 0x%x", r); 
             __asm_invalidate_dcache_range((void *)mbox, (char *)mbox + sizeof(mbox)); 
-            /* is it a valid successful response? (strange it's benign) */
+            
             if (mbox[1]!=MBOX_RESPONSE) I("mbox[1] is %08x", mbox[1]);            
             return mbox[1]==MBOX_RESPONSE;
         } else {
@@ -68,13 +66,11 @@ int mbox_call(unsigned char ch)
     return 0;
 }
 
-///////////////////////////////////////////////////
-// property interfaces via mbox
 #define MBOX_REQUEST    0
 #define CODE_RESPONSE_SUCCESS	0x80000000
 #define CODE_RESPONSE_FAILURE	0x80000001
 	
-/* channels */
+
 #define MBOX_CH_POWER   0
 #define MBOX_CH_FB      1
 #define MBOX_CH_VUART   2
@@ -85,40 +81,15 @@ int mbox_call(unsigned char ch)
 #define MBOX_CH_COUNT   7
 #define MBOX_CH_PROP    8
 
-/* tags */
+
 #define MBOX_TAG_LAST           0
 
-// in a successful resp, b31 is set; b30-0 is "value length in bytes"
 #define VALUE_LENGTH_RESPONSE	(1 << 31)
 
-// #define PROPTAG_GET_FIRMWARE_REVISION	0x00000001
-// #define PROPTAG_GET_BOARD_MODEL		0x00010001
-// #define PROPTAG_GET_BOARD_REVISION	0x00010002
-// #define PROPTAG_GET_MAC_ADDRESS		0x00010003
-// #define PROPTAG_GET_BOARD_SERIAL	0x00010004
-// #define PROPTAG_GET_ARM_MEMORY		0x00010005
-// #define PROPTAG_GET_VC_MEMORY		0x00010006
-// #define PROPTAG_SET_POWER_STATE		0x00028001
-//     #define DEVICE_ID_SD_CARD	0   // FL: SDHCI, not SDHOST
-// 	#define DEVICE_ID_USB_HCD	3
-//     #define POWER_STATE_OFF		(0 << 0)
-// 	#define POWER_STATE_ON		(1 << 0)
-// 	#define POWER_STATE_WAIT	(1 << 1)
-// 	#define POWER_STATE_NO_DEVICE	(1 << 1)	// in response
-// #define PROPTAG_GET_CLOCK_RATE		0x00030002
-// #define PROPTAG_GET_TEMPERATURE		0x00030006
-// #define PROPTAG_GET_EDID_BLOCK		0x00030020
-// #define PROPTAG_GET_DISPLAY_DIMENSIONS	0x00040003
-// #define PROPTAG_GET_COMMAND_LINE	0x00050001
-// // undocumented. cf https://github.com/raspberrypi/firmware/issues/719
-// // also sound/sample/env.c EnableVCHIQ
-// #define PROPTAG_VCHIQ_INIT  	    0x48010 
 
-///////////////////////////////////////////////////
-//  framebuffer driver (via mbox)
 #include "fb.h"
 
-/* PC Screen Font as used by Linux Console */
+
 typedef struct {
     unsigned int magic;
     unsigned int version;
@@ -130,41 +101,17 @@ typedef struct {
     unsigned int width;
     unsigned char glyphs;
 } __attribute__((packed)) psf_t;
-// cf: Makefile font build rules
 extern volatile unsigned char _binary_font_psf_start;  
 
-// /* Scalable Screen Font (https://gitlab.com/bztsrc/scalable-font2) */
-// typedef struct {
-//     unsigned char  magic[4];
-//     unsigned int   size;
-//     unsigned char  type;
-//     unsigned char  features;
-//     unsigned char  width;
-//     unsigned char  height;
-//     unsigned char  baseline;
-//     unsigned char  underline;
-//     unsigned short fragments_offs;
-//     unsigned int   characters_offs;
-//     unsigned int   ligature_offs;
-//     unsigned int   kerning_offs;
-//     unsigned int   cmap_offs;
-// } __attribute__((packed)) sfn_t;
-// extern volatile unsigned char _binary_font_sfn_start; // cf: linker script
 
-// default (upon boot): 1024x768, phys WH = virt WH, offset (0,0)
-// said to support up to 1920x1080
 struct fb_struct the_fb = {
     .fb = 0,
 #ifdef PLAT_RPI3QEMU
-    // these are just initial fb sizes; app will ask for diff
-    // sizes based on their logic. so we keep them small for qemu
-    // to avoid a big blank screen upon boot
     .width = 320,
     .height = 240, 
     .vwidth = 320, 
     .vheight = 240,
 #else // rpi3 hw
-    // =0 same as the detected scr dim, see below
     .width  = 0, // 1024,  
     .height = 0, // 768, 
     .vwidth = 0, // 1024, 
@@ -178,9 +125,6 @@ struct fb_struct the_fb = {
     .offsety = 0,
     .size = 0, 
 }; 
-// isrgb: whatever the doc says, 0 seems rgb; 1 seems bgr (per my test)
-// rpi3 hw will return "0" even if we asks for "1"
-// qemu will do whatever we ask ("0" or "1"); if "1", channel order is bgr
 
 /* 
     detect phys display optimal x/y, if unconfigured
@@ -214,9 +158,6 @@ int fb_detect_scr_dim(uint *w, uint *h) {
     return 0; 
 }
 
-// set virt offset
-// caller must hold mboxlock
-// 0 on success
 int fb_set_voffsets(int offsetx, int offsety) {
 
     mbox[0] = 8*4;
@@ -255,7 +196,6 @@ static int do_fb_init(struct fb_struct *fbs)
     acquire(&mboxlock); 
 
 #ifdef PLAT_RPI3
-    // if (v)width/(v)height is 0, set them = the scr size
     if (fb_detect_scr_dim(&fbs->scr_width,&fbs->scr_height)==0) {
         fbs->vwidth = fbs->vwidth ? fbs->vwidth:fbs->scr_width;
         fbs->vheight = fbs->vheight ? fbs->vheight:fbs->scr_height;
@@ -267,7 +207,6 @@ static int do_fb_init(struct fb_struct *fbs)
     mbox[0] = 35*4;     // size of the whole buf that follows
     mbox[1] = MBOX_REQUEST; // cpu->gpu request
 
-    // a sequence of tags below 
     mbox[2] = 0x48003;  //set phy width & height
     mbox[3] = 8;        // total buf size of this tag
     mbox[4] = 8;        // req val size (needed?), to be overwritten as resp val size
@@ -309,11 +248,9 @@ static int do_fb_init(struct fb_struct *fbs)
 
     mbox[34] = MBOX_TAG_LAST;   // the end of tag seq
 
-    // make call, then check some response vals that may fail
     if(mbox_call(MBOX_CH_PROP) 
-        && mbox[20]==fbs->depth /*depth*/ 
-        && mbox[28]!=0 /*framebuf*/) {
-        // extract framebuf info from resp...
+        && mbox[20]==fbs->depth  
+        && mbox[28]!=0 ) {
         mbox[28]&=0x3FFFFFFF;  
         fbs->fb = (unsigned char *)((unsigned long)mbox[28]);   // save framebuf ptr
         fbs->width=mbox[5];
@@ -383,7 +320,6 @@ int fb_fini(void) {
 
     if(!mbox_call(MBOX_CH_PROP))
         I("failed to rls fb with GPU (could be benign)"); 
-        // response code always 0x80000001 (failure). couldn't figure out why
 
     if (free_phys_region((unsigned long)the_fb.fb, the_fb.size)) {
         E("failed to free fb memory. bug?"); 
@@ -395,8 +331,6 @@ out:
     return ret; 
 }
 
-///////////////////////////////////////////////////
-//  draw: picture/text on the fb display 
 
 /* 
     Display a string using fixed size PSF update x,y screen coordinates
@@ -408,43 +342,32 @@ void fb_print(int *x, int *y, char *s)
     unsigned pitch = the_fb.pitch; 
     unsigned char *fb = the_fb.fb; 
 
-    // get our font
     psf_t *font = (psf_t*)&_binary_font_psf_start;
-    // draw next character if it's not zero
     while(*s) {
-        /* get offset of the glyph. Need to adjust this to support unicode table */
+        
         unsigned char *glyph = (unsigned char*)&_binary_font_psf_start +
          font->headersize + (*((unsigned char*)s)<font->numglyph?*s:0)*font->bytesperglyph;
-        // calculate the offset on screen
         int offs = (*y * pitch) + (*x * 4);
-        // variables
         int i,j, line,mask, bytesperline=(font->width+7)/8;
-        // handle carrige return
         if(*s == '\r') {
             *x = 0;
         } else
-        // new line
         if(*s == '\n') {
             *x = 0; *y += font->height;
         } else {
-            // display a character
             for(j=0;j<font->height;j++){
-                // display one row
                 line=offs;
                 mask=1<<(font->width-1);
                 for(i=0;i<font->width;i++){
-                    // if bit set, we use white color, otherwise black
                     *((unsigned int*)(fb + line))=((int)*glyph) & mask?0xFFFFFF:0;
                     mask>>=1;
                     line+=4;
                 }
-                // adjust to next line
                 glyph+=bytesperline;
                 offs+=pitch;
             }
             *x += (font->width+1);
         }
-        // next character
         s++;
     }
 }
@@ -459,12 +382,9 @@ void fb_showpicture()
     int x,y;
     unsigned char *ptr=the_fb.fb;
     char *data=IMG_DATA, pixel[4];
-    // fill framebuf. crop img data per the framebuf size
     unsigned int img_fb_height = the_fb.vheight < IMG_HEIGHT ? the_fb.vheight : IMG_HEIGHT; 
     unsigned int img_fb_width = the_fb.vwidth < IMG_WIDTH ? the_fb.vwidth : IMG_WIDTH; 
 
-    // copy the image pixels to the start (top) of framebuf    
-    //ptr += (vheight-img_fb_height)/2*pitch + (vwidth-img_fb_width)*2;  
     ptr += (the_fb.vwidth-img_fb_width)/2*PIXELSIZE;  // top center
     ptr += (the_fb.vheight-img_fb_height)/2*the_fb.pitch; 
     
@@ -476,20 +396,17 @@ void fb_showpicture()
             (pixel[2]) channels. */
             *((unsigned int*)ptr)=the_fb.isrgb ? *((unsigned int *)&pixel) 
                 : (unsigned int)(pixel[0]<<16 | pixel[1]<<8 | pixel[2]);
-            // *((unsigned int*)ptr)=(!the_fb.isrgb) ? *((unsigned int *)&pixel) : (unsigned int)(pixel[0]<<16 | pixel[1]<<8 | pixel[2]);
             ptr+=4;
         }
         ptr+=the_fb.pitch-img_fb_width*4;
     }
 
-    // show text strings
     x = (the_fb.vwidth-img_fb_width)/2;
     y = the_fb.vheight/2 + img_fb_height/2;
     fb_print(&x, &y, "UVA OS");
     char res[16]; 
     sprintf(res, " %dx%d", the_fb.width, the_fb.height); // debug info 
     fb_print(&x, &y, res);
-    // __asm_flush_dcache_range(the_fb.fb, the_fb.fb + the_fb.size); 
 }
 
 /*
